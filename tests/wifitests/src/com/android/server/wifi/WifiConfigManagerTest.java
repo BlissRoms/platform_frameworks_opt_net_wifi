@@ -222,6 +222,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
                 .thenReturn(false);
         when(mWifiInjector.getMacAddressUtil()).thenReturn(mMacAddressUtil);
         when(mWifiInjector.getWifiMetrics()).thenReturn(mWifiMetrics);
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(anyInt())).thenReturn(true);
         when(mMacAddressUtil.calculatePersistentMac(any(), any())).thenReturn(TEST_RANDOMIZED_MAC);
         when(mWifiScoreCard.lookupNetwork(any())).thenReturn(mPerNetwork);
 
@@ -621,7 +622,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
                 return (int) mBssidStatusMap.entrySet().stream()
                         .filter(e -> e.getValue().equals(ssid)).count();
             }
-        }).when(mBssidBlocklistMonitor).getNumBlockedBssidsForSsid(
+        }).when(mBssidBlocklistMonitor).updateAndGetNumBlockedBssidsForSsid(
                 anyString());
         // add bssid to the blocklist
         mBssidStatusMap.put(TEST_BSSID, openNetwork.SSID);
@@ -649,7 +650,8 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         assertTrue(oldConfig.trusted);
         assertNull(oldConfig.BSSID);
 
-        assertEquals(0, mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(openNetwork.SSID));
+        assertEquals(0, mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(
+                openNetwork.SSID));
     }
 
     /**
@@ -1375,7 +1377,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         for (int i = 1; i < MAX_BLOCKED_BSSID_PER_NETWORK + 1; i++) {
             verifyDisableNetwork(result, disableReason);
             int numBssidsInBlocklist = i;
-            when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(anyString()))
+            when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(anyString()))
                     .thenReturn(numBssidsInBlocklist);
             timeout = WifiConfigManager.getNetworkSelectionDisableTimeoutMillis(disableReason)
                     * multiplier;
@@ -1386,7 +1388,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         // Verify one last time that the disable duration is capped at some maximum.
         verifyDisableNetwork(result, disableReason);
-        when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(anyString()))
+        when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(anyString()))
                 .thenReturn(MAX_BLOCKED_BSSID_PER_NETWORK + 1);
         verifyNetworkIsEnabledAfter(result.getNetworkId(),
                 TEST_ELAPSED_UPDATE_NETWORK_SELECTION_TIME_MILLIS + timeout);
@@ -1404,7 +1406,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         // Verify that with 0 BSSIDs in blocklist we enable the network immediately
         verifyDisableNetwork(result, disableReason);
-        when(mBssidBlocklistMonitor.getNumBlockedBssidsForSsid(anyString())).thenReturn(0);
+        when(mBssidBlocklistMonitor.updateAndGetNumBlockedBssidsForSsid(anyString())).thenReturn(0);
         when(mClock.getElapsedSinceBootMillis())
                 .thenReturn(TEST_ELAPSED_UPDATE_NETWORK_SELECTION_TIME_MILLIS);
         assertTrue(mWifiConfigManager.tryEnableNetwork(result.getNetworkId()));
@@ -2912,15 +2914,78 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         setupStoreDataForUserRead(user2Networks, new HashMap<>());
         // Now switch the user to user 2 and ensure that user 1's private network has been removed.
         when(mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(user2))).thenReturn(true);
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(user1Network.creatorUid))
+                .thenReturn(false);
         Set<Integer> removedNetworks = mWifiConfigManager.handleUserSwitch(user2);
         verify(mWifiConfigStore).switchUserStoresAndRead(any(List.class));
         assertTrue((removedNetworks.size() == 1) && (removedNetworks.contains(user1NetworkId)));
+        verify(mWcmListener).onNetworkRemoved(any());
 
         // Set the expected networks to be |sharedNetwork| and |user2Network|.
         List<WifiConfiguration> expectedNetworks = new ArrayList<WifiConfiguration>() {
             {
                 add(sharedNetwork);
                 add(user2Network);
+            }
+        };
+        WifiConfigurationTestUtil.assertConfigurationsEqualForConfigManagerAddOrUpdate(
+                expectedNetworks, mWifiConfigManager.getConfiguredNetworksWithPasswords());
+
+        // Send another user switch  indication with the same user 2. This should be ignored and
+        // hence should not remove any new networks.
+        when(mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(user2))).thenReturn(true);
+        removedNetworks = mWifiConfigManager.handleUserSwitch(user2);
+        assertTrue(removedNetworks.isEmpty());
+    }
+
+    @Test
+    public void testHandleUserSwitchRemovesOldUserEphemeralNetworks() throws Exception {
+        int user1 = TEST_DEFAULT_USER;
+        int user2 = TEST_DEFAULT_USER + 1;
+        setupUserProfiles(user2);
+
+        int appId = 674;
+
+        // Create 2 networks. 1 ephemeral network for user1 and 1 shared.
+        final WifiConfiguration sharedNetwork = WifiConfigurationTestUtil.createPskNetwork();
+
+        // Set up the store data that is loaded initially.
+        List<WifiConfiguration> sharedNetworks = new ArrayList<WifiConfiguration>() {
+            {
+                add(sharedNetwork);
+            }
+        };
+        setupStoreDataForRead(sharedNetworks, Collections.EMPTY_LIST);
+        assertTrue(mWifiConfigManager.loadFromStore());
+        verify(mWifiConfigStore).read();
+
+        WifiConfiguration ephemeralNetwork = WifiConfigurationTestUtil.createEphemeralNetwork();
+        verifyAddEphemeralNetworkToWifiConfigManager(ephemeralNetwork);
+
+        // Fetch the network ID assigned to the user 1 network initially.
+        int ephemeralNetworkId = WifiConfiguration.INVALID_NETWORK_ID;
+        List<WifiConfiguration> retrievedNetworks =
+                mWifiConfigManager.getConfiguredNetworksWithPasswords();
+        for (WifiConfiguration network : retrievedNetworks) {
+            if (network.getKey().equals(ephemeralNetwork.getKey())) {
+                ephemeralNetworkId = network.networkId;
+            }
+        }
+
+        // Now switch the user to user 2 and ensure that user 1's private network has been removed.
+        when(mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(user2))).thenReturn(true);
+        Set<Integer> removedNetworks = mWifiConfigManager.handleUserSwitch(user2);
+        verify(mWifiConfigStore).switchUserStoresAndRead(any(List.class));
+        assertTrue((removedNetworks.size() == 1));
+        assertTrue(removedNetworks.contains(ephemeralNetworkId));
+        verifyNetworkRemoveBroadcast();
+        verify(mWcmListener).onNetworkRemoved(any());
+
+
+        // Set the expected networks to be |sharedNetwork|.
+        List<WifiConfiguration> expectedNetworks = new ArrayList<WifiConfiguration>() {
+            {
+                add(sharedNetwork);
             }
         };
         WifiConfigurationTestUtil.assertConfigurationsEqualForConfigManagerAddOrUpdate(
@@ -2991,7 +3056,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
     public void testHandleUserSwitchPushesOtherPrivateNetworksToSharedStore() throws Exception {
         int user1 = TEST_DEFAULT_USER;
         int user2 = TEST_DEFAULT_USER + 1;
-        setupUserProfiles(user2);
+        setupUserProfiles(user1);
 
         int appId = 674;
 
@@ -3029,6 +3094,8 @@ public class WifiConfigManagerTest extends WifiBaseTest {
             }
         };
         setupStoreDataForUserRead(userNetworks, new HashMap<>());
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(user2Network.creatorUid))
+                .thenReturn(false);
         mWifiConfigManager.handleUserUnlock(user1);
         verify(mWifiConfigStore).switchUserStoresAndRead(any(List.class));
         // Capture the written data for the user 1 and ensure that it corresponds to what was
@@ -3043,6 +3110,10 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         // Now switch the user to user2 and ensure that user 2's private network has been moved to
         // the user store.
         when(mUserManager.isUserUnlockingOrUnlocked(UserHandle.of(user2))).thenReturn(true);
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(user1Network.creatorUid))
+                .thenReturn(true).thenReturn(false);
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(user2Network.creatorUid))
+                .thenReturn(false).thenReturn(true);
         mWifiConfigManager.handleUserSwitch(user2);
         // Set the expected network list before comparing. user1Network should be in shared data.
         // Note: In the real world, user1Network will no longer be visible now because it should
@@ -3107,6 +3178,8 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         // Unlock the owner of the legacy Passpoint configuration, verify it is removed from
         // the configured networks (migrated to PasspointManager).
         setupStoreDataForUserRead(new ArrayList<WifiConfiguration>(), new HashMap<>());
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(passpointConfig.creatorUid))
+                .thenReturn(false);
         mWifiConfigManager.handleUserUnlock(user1);
         verify(mWifiConfigStore).switchUserStoresAndRead(any(List.class));
         Pair<List<WifiConfiguration>, List<WifiConfiguration>> writtenNetworkList =
@@ -3234,7 +3307,8 @@ public class WifiConfigManagerTest extends WifiBaseTest {
 
         // Ensure that we have 2 networks in the database before the stop.
         assertEquals(2, mWifiConfigManager.getConfiguredNetworks().size());
-
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(user1Network.creatorUid))
+                .thenReturn(false);
         mWifiConfigManager.handleUserStop(user1);
 
         // Ensure that we only have 1 shared network in the database after the stop.
@@ -3436,6 +3510,7 @@ public class WifiConfigManagerTest extends WifiBaseTest {
         int creatorUid = UserHandle.getUid(user2, 674);
 
         when(mWifiPermissionsUtil.checkNetworkSettingsPermission(creatorUid)).thenReturn(false);
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(creatorUid)).thenReturn(false);
 
         // Create a network for user2 try adding it. This should be rejected.
         final WifiConfiguration user2Network = WifiConfigurationTestUtil.createPskNetwork();

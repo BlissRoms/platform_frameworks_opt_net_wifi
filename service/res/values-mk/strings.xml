@@ -20,7 +20,7 @@
     <string name="wifi_available_title" msgid="2844963247498642107">"Поврзете се на отворена Wi‑Fi-мрежа"</string>
     <string name="wifi_available_title_connecting" msgid="4308431577637294026">"Поврзување со Wi-Fi мрежа"</string>
     <string name="wifi_available_title_connected" msgid="922603556292157664">"Се поврзавте на Wi‑Fi-мрежа"</string>
-    <string name="wifi_available_title_failed_to_connect" msgid="2304443371893419545">"Не можеше да се поврзе на Wi‑Fi-мрежа"</string>
+    <string name="wifi_available_title_failed_to_connect" msgid="2304443371893419545">"Не може да се поврзе на Wi‑Fi-мрежа"</string>
     <string name="wifi_available_content_failed_to_connect" msgid="3171283790496729136">"Допрете за да ги видите сите мрежи"</string>
     <string name="wifi_available_action_connect" msgid="7989951293406720158">"Поврзете се"</string>
     <string name="wifi_available_action_all_networks" msgid="2616926772813472478">"Сите мрежи"</string>
@@ -31,9 +31,9 @@
     <string name="wifi_suggestion_content" msgid="7796523101671166285">"Предложени мрежи од <xliff:g id="NAME">%s</xliff:g>. Уредот може да се поврзе автоматски."</string>
     <string name="wifi_suggestion_action_allow_app" msgid="1269853856167682235">"Дозволи"</string>
     <string name="wifi_suggestion_action_disallow_app" msgid="4844316521687534924">"Не, фала"</string>
-    <string name="wifi_suggestion_imsi_privacy_title" msgid="2915915091404141470">"<xliff:g id="CARRIERNAME">%s</xliff:g> сака автоматски да се поврзе"</string>
-    <string name="wifi_suggestion_imsi_privacy_content" msgid="2964867545127220548">"Мреживе примаат уникатен ID што може да се користи за следење на локацијата на уредот"</string>
-    <string name="wifi_suggestion_action_allow_imsi_privacy_exemption_carrier" msgid="4510014692570591616">"Сепак поврзи се"</string>
+    <string name="wifi_suggestion_imsi_privacy_title" msgid="442867569519352918">"Да се поврзе на Wi-Fi на <xliff:g id="CARRIERNAME">%s</xliff:g>?"</string>
+    <string name="wifi_suggestion_imsi_privacy_content" msgid="6631744859477949328">"Мреживе примаат уникатен ID на SIM што може да се користи за следење на локацијата на уредот"</string>
+    <string name="wifi_suggestion_action_allow_imsi_privacy_exemption_carrier" msgid="6445286383390779291">"Поврзи"</string>
     <string name="wifi_suggestion_action_disallow_imsi_privacy_exemption_carrier" msgid="1466870675651864648">"Не поврзувај"</string>
     <string name="wifi_suggestion_imsi_privacy_exemption_confirmation_title" msgid="3252889810011175876">"Да се потврди врската?"</string>
     <string name="wifi_suggestion_imsi_privacy_exemption_confirmation_content" msgid="1665277613133133730">"Ако се поврзете, Wi‑Fi мрежите на <xliff:g id="CARRIERNAME">%s</xliff:g> може да имаат пристап до уникатен ID поврзан со вашата SIM-картичка или да го споделуваат. Ова може да овозможи следење на локацијата на вашиот уред."</string>
@@ -44,7 +44,7 @@
     <string name="wifi_wakeup_onboarding_action_disable" msgid="672002169958868470">"Не вклучувај повторно"</string>
     <string name="wifi_wakeup_enabled_title" msgid="7758584632765597662">"Wi‑Fi се вклучи автоматски"</string>
     <string name="wifi_wakeup_enabled_content" msgid="4713038331224656338">"Близу сте до зачувана мрежа: <xliff:g id="NETWORK_SSID">%1$s</xliff:g>"</string>
-    <string name="wifi_watchdog_network_disabled" msgid="688248897654073438">"Не можеше да се поврзе со Wi-Fi"</string>
+    <string name="wifi_watchdog_network_disabled" msgid="688248897654073438">"Не може да се поврзе на Wi-Fi"</string>
     <string name="wifi_watchdog_network_disabled_detailed" msgid="2946200607682633112">" има слаба интернет-врска."</string>
     <string name="wifi_connect_alert_title" msgid="6144470472092017636">"Дозволете поврзување?"</string>
     <string name="wifi_connect_alert_message" msgid="3123801378559831220">"Апликацијата %1$s сака да се поврзе со Wifi-мрежата %2$s"</string>

@@ -571,7 +571,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
         assertTrue(mWifiServiceImpl.setWifiEnabled(TEST_PACKAGE_NAME, false));
         inorder.verify(mWifiMetrics).logUserActionEvent(UserActionEvent.EVENT_TOGGLE_WIFI_ON);
         inorder.verify(mWifiMetrics).incrementNumWifiToggles(eq(true), eq(true));
-        inorder.verify(mWifiMetrics).logUserActionEvent(UserActionEvent.EVENT_TOGGLE_WIFI_OFF);
+        inorder.verify(mWifiMetrics).logUserActionEvent(eq(UserActionEvent.EVENT_TOGGLE_WIFI_OFF),
+                anyInt());
         inorder.verify(mWifiMetrics).incrementNumWifiToggles(eq(true), eq(false));
     }
 
@@ -3621,7 +3622,8 @@ public class WifiServiceImplTest extends WifiBaseTest {
                 mock(IActionListener.class), 0);
         verify(mClientModeImpl).connect(any(WifiConfiguration.class), anyInt(),
                 any(Binder.class), any(IActionListener.class), anyInt(), anyInt());
-        verify(mWifiMetrics).logUserActionEvent(eq(UserActionEvent.EVENT_MANUAL_CONNECT), anyInt());
+        verify(mWifiMetrics).logUserActionEvent(eq(UserActionEvent.EVENT_ADD_OR_UPDATE_NETWORK),
+                anyInt());
     }
 
     /**
@@ -3632,8 +3634,11 @@ public class WifiServiceImplTest extends WifiBaseTest {
     public void testSaveNetworkWithPrivilegedPermission() throws Exception {
         when(mContext.checkPermission(eq(android.Manifest.permission.NETWORK_SETTINGS),
             anyInt(), anyInt())).thenReturn(PackageManager.PERMISSION_GRANTED);
+        when(mWifiPermissionsUtil.checkNetworkSettingsPermission(anyInt())).thenReturn(true);
         mWifiServiceImpl.save(mock(WifiConfiguration.class), mock(Binder.class),
                 mock(IActionListener.class), 0);
+        verify(mWifiMetrics).logUserActionEvent(eq(UserActionEvent.EVENT_ADD_OR_UPDATE_NETWORK),
+                anyInt());
         verify(mClientModeImpl).save(any(WifiConfiguration.class),
                 any(Binder.class), any(IActionListener.class), anyInt(), anyInt());
     }
@@ -4587,12 +4592,12 @@ public class WifiServiceImplTest extends WifiBaseTest {
     @Test
     public void testGetNetworkSuggestions() {
         List<WifiNetworkSuggestion> testList = new ArrayList<>();
-        when(mWifiNetworkSuggestionsManager.get(anyString())).thenReturn(testList);
+        when(mWifiNetworkSuggestionsManager.get(anyString(), anyInt())).thenReturn(testList);
         mLooper.startAutoDispatch();
         assertEquals(testList, mWifiServiceImpl.getNetworkSuggestions(TEST_PACKAGE_NAME));
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
-        verify(mWifiNetworkSuggestionsManager).get(eq(TEST_PACKAGE_NAME));
+        verify(mWifiNetworkSuggestionsManager).get(eq(TEST_PACKAGE_NAME), anyInt());
     }
 
     /**
@@ -4607,7 +4612,7 @@ public class WifiServiceImplTest extends WifiBaseTest {
         assertTrue(mWifiServiceImpl.getNetworkSuggestions(TEST_PACKAGE_NAME).isEmpty());
         mLooper.stopAutoDispatchAndIgnoreExceptions();
 
-        verify(mWifiNetworkSuggestionsManager, never()).get(eq(TEST_PACKAGE_NAME));
+        verify(mWifiNetworkSuggestionsManager, never()).get(eq(TEST_PACKAGE_NAME), anyInt());
     }
 
     /**
@@ -5389,12 +5394,12 @@ public class WifiServiceImplTest extends WifiBaseTest {
         mLooper.dispatchAll();
         verify(mWifiNetworkSuggestionsManager).registerSuggestionConnectionStatusListener(
                 eq(mAppBinder), eq(mSuggestionConnectionStatusListener), eq(NETWORK_CALLBACK_ID),
-                eq(TEST_PACKAGE_NAME));
+                eq(TEST_PACKAGE_NAME), anyInt());
         mWifiServiceImpl.unregisterSuggestionConnectionStatusListener(NETWORK_CALLBACK_ID,
                 TEST_PACKAGE_NAME);
         mLooper.dispatchAll();
         verify(mWifiNetworkSuggestionsManager).unregisterSuggestionConnectionStatusListener(
-                eq(NETWORK_CALLBACK_ID), eq(TEST_PACKAGE_NAME));
+                eq(NETWORK_CALLBACK_ID), eq(TEST_PACKAGE_NAME), anyInt());
     }
 
 

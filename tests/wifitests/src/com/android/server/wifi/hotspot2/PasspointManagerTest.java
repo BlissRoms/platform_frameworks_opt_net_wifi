@@ -20,6 +20,7 @@ import static android.app.AppOpsManager.MODE_IGNORED;
 import static android.app.AppOpsManager.OPSTR_CHANGE_WIFI_STATE;
 import static android.net.wifi.WifiConfiguration.METERED_OVERRIDE_METERED;
 import static android.net.wifi.WifiConfiguration.METERED_OVERRIDE_NOT_METERED;
+import static android.net.wifi.WifiInfo.DEFAULT_MAC_ADDRESS;
 
 import static com.android.server.wifi.WifiConfigurationTestUtil.SECURITY_EAP;
 
@@ -50,6 +51,7 @@ import static org.mockito.MockitoAnnotations.initMocks;
 import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.Intent;
+import android.net.MacAddress;
 import android.net.Uri;
 import android.net.wifi.EAPConstants;
 import android.net.wifi.ScanResult;
@@ -78,6 +80,7 @@ import com.android.server.wifi.ClientModeImpl;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.FakeKeys;
 import com.android.server.wifi.FrameworkFacade;
+import com.android.server.wifi.MacAddressUtil;
 import com.android.server.wifi.NetworkUpdateResult;
 import com.android.server.wifi.WifiBaseTest;
 import com.android.server.wifi.WifiCarrierInfoManager;
@@ -99,6 +102,7 @@ import com.android.server.wifi.hotspot2.anqp.OsuProviderInfo;
 import com.android.server.wifi.proto.nano.WifiMetricsProto.UserActionEvent;
 import com.android.server.wifi.util.InformationElementUtil;
 import com.android.server.wifi.util.InformationElementUtil.RoamingConsortium;
+import com.android.server.wifi.util.WifiPermissionsUtil;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -188,6 +192,8 @@ public class PasspointManagerTest extends WifiBaseTest {
     @Mock TelephonyManager mTelephonyManager;
     @Mock SubscriptionManager mSubscriptionManager;
     @Mock WifiNetworkSuggestionsManager mWifiNetworkSuggestionsManager;
+    @Mock MacAddressUtil mMacAddressUtil;
+    @Mock WifiPermissionsUtil mWifiPermissionsUtil;
 
     Handler mHandler;
     TestLooper mLooper;
@@ -216,6 +222,7 @@ public class PasspointManagerTest extends WifiBaseTest {
         when(mWifiInjector.getClientModeImpl()).thenReturn(mClientModeImpl);
         when(mWifiInjector.getWifiNetworkSuggestionsManager())
                 .thenReturn(mWifiNetworkSuggestionsManager);
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(anyInt())).thenReturn(true);
         mWifiCarrierInfoManager = new WifiCarrierInfoManager(mTelephonyManager,
                 mSubscriptionManager, mWifiInjector, mock(FrameworkFacade.class),
                 mock(WifiContext.class), mWifiConfigStore, mock(Handler.class), mWifiMetrics);
@@ -223,7 +230,8 @@ public class PasspointManagerTest extends WifiBaseTest {
         mHandler = new Handler(mLooper.getLooper());
         mManager = new PasspointManager(mContext, mWifiInjector, mHandler, mWifiNative,
                 mWifiKeyStore, mClock, mObjectFactory, mWifiConfigManager,
-                mWifiConfigStore, mWifiMetrics, mWifiCarrierInfoManager);
+                mWifiConfigStore, mWifiMetrics, mWifiCarrierInfoManager, mMacAddressUtil,
+                mWifiPermissionsUtil);
         ArgumentCaptor<PasspointEventHandler.Callbacks> callbacks =
                 ArgumentCaptor.forClass(PasspointEventHandler.Callbacks.class);
         verify(mObjectFactory).makePasspointEventHandler(any(WifiNative.class),
@@ -520,6 +528,29 @@ public class PasspointManagerTest extends WifiBaseTest {
     }
 
     /**
+     * Verify that adding a provider from a background user will fail.
+     *
+     * @throws Exception
+     */
+    @Test
+    public void addProviderWithBackgroundUser() throws Exception {
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(anyInt())).thenReturn(false);
+
+        PasspointConfiguration config = createTestConfigWithUserCredential(TEST_FQDN,
+                TEST_FRIENDLY_NAME);
+        PasspointProvider provider = createMockProvider(config);
+        when(provider.getPackageName()).thenReturn(TEST_PACKAGE);
+        when(mObjectFactory.makePasspointProvider(eq(config), eq(mWifiKeyStore),
+                eq(mWifiCarrierInfoManager), anyLong(), eq(TEST_CREATOR_UID), eq(TEST_PACKAGE),
+                eq(false))).thenReturn(provider);
+        assertFalse(mManager.addOrUpdateProvider(config, TEST_CREATOR_UID,
+                TEST_PACKAGE, false, true));
+
+        verify(mWifiMetrics).incrementNumPasspointProviderInstallation();
+        verify(mWifiMetrics, never()).incrementNumPasspointProviderInstallSuccess();
+    }
+
+    /**
      * Verify that adding a user saved provider with a valid configuration and user credential will
      * succeed.
      *
@@ -749,7 +780,8 @@ public class PasspointManagerTest extends WifiBaseTest {
                 .thenReturn(true);
         PasspointManager ut = new PasspointManager(mContext, mWifiInjector, mHandler, mWifiNative,
                 mWifiKeyStore, mClock, spyFactory, mWifiConfigManager,
-                mWifiConfigStore, mWifiMetrics, mWifiCarrierInfoManager);
+                mWifiConfigStore, mWifiMetrics, mWifiCarrierInfoManager, mMacAddressUtil,
+                mWifiPermissionsUtil);
 
         assertTrue(ut.addOrUpdateProvider(config, TEST_CREATOR_UID, TEST_PACKAGE,
                 true, true));
@@ -1227,6 +1259,39 @@ public class PasspointManagerTest extends WifiBaseTest {
                         provider2.getConfig().getUniqueId(), provider3.getConfig().getUniqueId(),
                         provider4.getConfig().getUniqueId(), provider5.getConfig().getUniqueId()))
                 .size());
+    }
+
+    /**
+     * Verify that a {@link WifiConfiguration} will be returned with the correct value for the
+     * randomized MAC address.
+     */
+    @Test
+    public void getWifiConfigsForPasspointProfilesWithoutEnhancedMacRandomization() {
+        MacAddress randomizedMacAddress = MacAddress.fromString("01:23:45:67:89:ab");
+        when(mMacAddressUtil.calculatePersistentMac(any(), any())).thenReturn(randomizedMacAddress);
+        when(mWifiConfigManager.shouldUseAggressiveRandomization(any())).thenReturn(false);
+        PasspointProvider provider = addTestProvider(TEST_FQDN, TEST_FRIENDLY_NAME,
+                TEST_PACKAGE, false, null);
+        WifiConfiguration config = mManager.getWifiConfigsForPasspointProfiles(
+                Collections.singletonList(provider.getConfig().getUniqueId())).get(0);
+        assertEquals(config.getRandomizedMacAddress(), randomizedMacAddress);
+    }
+
+    /**
+     * Verify that a {@link WifiConfiguration} will be returned with DEFAULT_MAC_ADDRESS for the
+     * randomized MAC address if enhanced mac randomization is enabled. This value will display in
+     * the wifi picker's network details page as "Not available" if the network is disconnected.
+     */
+    @Test
+    public void getWifiConfigsForPasspointProfilesWithEnhancedMacRandomization() {
+        MacAddress randomizedMacAddress = MacAddress.fromString("01:23:45:67:89:ab");
+        when(mMacAddressUtil.calculatePersistentMac(any(), any())).thenReturn(randomizedMacAddress);
+        when(mWifiConfigManager.shouldUseAggressiveRandomization(any())).thenReturn(true);
+        PasspointProvider provider = addTestProvider(TEST_FQDN, TEST_FRIENDLY_NAME,
+                TEST_PACKAGE, false, null);
+        WifiConfiguration config = mManager.getWifiConfigsForPasspointProfiles(
+                Collections.singletonList(provider.getConfig().getUniqueId())).get(0);
+        assertEquals(config.getRandomizedMacAddress(), MacAddress.fromString(DEFAULT_MAC_ADDRESS));
     }
 
     /**
@@ -1892,6 +1957,29 @@ public class PasspointManagerTest extends WifiBaseTest {
         assertTrue(mManager.getProviderConfigs(TEST_UID, false).isEmpty());
         // 1 profile available for TEST_CREATOR_UID
         assertFalse(mManager.getProviderConfigs(TEST_CREATOR_UID, false).isEmpty());
+    }
+
+    /**
+     * Verify that removing a provider from a background user will fail.
+     *
+     * @throws Exception
+     */
+    @Test
+    public void removeProviderWithBackgroundUser() throws Exception {
+        PasspointConfiguration config = createTestConfigWithUserCredential(TEST_FQDN,
+                TEST_FRIENDLY_NAME);
+        PasspointProvider provider = createMockProvider(config);
+        when(mObjectFactory.makePasspointProvider(eq(config), eq(mWifiKeyStore),
+                eq(mWifiCarrierInfoManager), anyLong(), eq(TEST_CREATOR_UID), eq(TEST_PACKAGE),
+                eq(false))).thenReturn(provider);
+        assertTrue(mManager.addOrUpdateProvider(config, TEST_CREATOR_UID, TEST_PACKAGE,
+                false, true));
+        verifyInstalledConfig(config);
+        verify(mWifiMetrics).incrementNumPasspointProviderInstallation();
+        verify(mWifiMetrics).incrementNumPasspointProviderInstallSuccess();
+
+        when(mWifiPermissionsUtil.doesUidBelongToCurrentUser(anyInt())).thenReturn(false);
+        assertFalse(mManager.removeProvider(TEST_CREATOR_UID, false, null, TEST_FQDN));
     }
 
     /**
